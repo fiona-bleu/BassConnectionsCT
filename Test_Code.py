@@ -37,7 +37,9 @@ print(f"Loaded {len(polygons)} polygons.")
 results = pd.DataFrame({"Polygon_ID": gdf.index, "First_Year": None})
 print("Initialized results storage.")
 
-# Initialize the Dash app
+
+
+#initialize web app
 app = dash.Dash(__name__)
 
 # Define the app layout (UI components)
@@ -58,3 +60,49 @@ app.layout = html.Div([
     html.Div(id="image-display"),
     html.Div(id="results-output"),
 ])
+
+# Track the current polygon index
+selected_polygon_idx = [0]  # Mutable list to allow updates
+
+# Callback to update the displayed polygon
+@app.callback(
+    [Output("polygon-info", "children"), Output("image-display", "children")],
+    [Input("prev-button", "n_clicks"), Input("next-button", "n_clicks")]
+)
+def update_polygon(prev_clicks, next_clicks):
+    # Update the current polygon index
+    idx = selected_polygon_idx[0]
+    idx = max(0, min(len(polygons) - 1, idx + (next_clicks - prev_clicks)))
+    selected_polygon_idx[0] = idx
+
+    # Get the current polygon and its extent
+    current_polygon = polygons.iloc[idx]
+    extent = current_polygon.bounds  # (minx, miny, maxx, maxy)
+
+    # Load images for the current polygon extent
+    images = []
+    for tif_path in tif_files:
+        with rasterio.open(tif_path) as src:
+            window = src.window(*extent)
+            image_data = src.read([1,2,3], window=window, boundless=True, fill_value=0)
+            image_data = np.moveaxis(image_data, 0, -1)
+            fig = px.imshow(image_data, title=os.path.basename(tif_path), aspect="auto")
+            images.append(dcc.Graph(figure=fig))
+    
+    return f"Polygon {idx + 1}/{len(polygons)}", images
+
+# Callback to save the selected year
+@app.callback(
+    Output("results-output", "children"),
+    [Input("save-button", "n_clicks")],
+    [dash.dependencies.State("year-dropdown", "value")]
+)
+def save_selection(save_clicks, selected_year):
+    if selected_year is not None:
+        idx = selected_polygon_idx[0]
+        results.loc[idx, "First_Year"] = selected_year
+        return f"Saved: Polygon {idx + 1} -> {selected_year}"
+    return "No selection made."
+
+if __name__ == "__main__":
+    app.run_server(debug=True)
