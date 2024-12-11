@@ -10,6 +10,7 @@ from dash import dcc, html  # dash components
 from dash.dependencies import Input, Output  # managing app interactivity
 import plotly.express as px  # for visualizing raster data
 import numpy as np  # for numerical operations
+from shapely.geometry import box  # For raster bounds as polygons
 
 # Directory to save reprojected rasters
 reprojected_dir = "Z:/BassConnectionsCT/Reprojected_Images"  # Adjust this path as needed
@@ -126,18 +127,31 @@ def update_polygon(prev_clicks, next_clicks):
 
     # Get the current polygon and its extent
     current_polygon = polygons.iloc[idx]
-    extent = current_polygon.bounds  # (minx, miny, maxx, maxy)
 
-    # Load images for the current polygon extent
+    # Check if the polygon overlaps with any raster bounds
     images = []
     for tif_path in tif_files:
         with rasterio.open(tif_path) as src:
+            raster_bounds_polygon = box(src.bounds.left, src.bounds.bottom, src.bounds.right, src.bounds.top)
+
+            # Skip the polygon if it does not overlap this raster
+            if not current_polygon.intersects(raster_bounds_polygon):
+                continue
+
+            # Load the raster data for the current polygon extent
+            extent = current_polygon.bounds  # (minx, miny, maxx, maxy)
             window = src.window(*extent)
-            image_data = src.read([1,2,3], window=window, boundless=True, fill_value=0)
-            image_data = np.moveaxis(image_data, 0, -1)
+            image_data = src.read([1, 2, 3], window=window, boundless=True, fill_value=0)
+            image_data = np.moveaxis(image_data, 0, -1)  # Reorder for plotting
+
+            # Create the Plotly figure
             fig = px.imshow(image_data, title=os.path.basename(tif_path), aspect="auto")
             images.append(dcc.Graph(figure=fig))
-    
+
+    # Handle cases where no raster overlaps the polygon
+    if not images:
+        images.append(html.Div("No overlapping rasters for this polygon."))
+
     return f"Polygon {idx + 1}/{len(polygons)}", images
 
 # Callback to save the selected year
