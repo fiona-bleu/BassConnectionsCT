@@ -124,36 +124,20 @@ def update_polygon(prev_clicks, next_clicks):
     idx = max(0, min(len(polygons) - 1, idx + (next_clicks - prev_clicks)))
     selected_polygon_idx[0] = idx
 
-    # Get the current polygon and its centroid
+    # Get the current polygon and its extent
     current_polygon = polygons.iloc[idx]
-    centroid = current_polygon.centroid
-    buffer_size = 50  # Buffer size in raster units (adjust as needed)
+    extent = current_polygon.bounds  # (minx, miny, maxx, maxy)
 
-    # Prepare the images for display
+    # Load images for the current polygon extent
     images = []
     for tif_path in tif_files:
         with rasterio.open(tif_path) as src:
-            # Get raster indices around the centroid with buffer
-            row, col = src.index(centroid.x, centroid.y)
-            window = rasterio.windows.Window(
-                col_off=max(0, col - buffer_size),
-                row_off=max(0, row - buffer_size),
-                width=buffer_size * 2,
-                height=buffer_size * 2,
-            )
-
-            # Read raster data from the buffered window
-            image_data = src.read([1, 2, 3], window=window, boundless=True, fill_value=0)
-            image_data = np.moveaxis(image_data, 0, -1)  # Reorder for plotting
-
-            # Create a Plotly figure
-            fig = px.imshow(
-                image_data,
-                title=os.path.basename(tif_path),
-                aspect="auto"
-            )
+            window = src.window(*extent)
+            image_data = src.read([1,2,3], window=window, boundless=True, fill_value=0)
+            image_data = np.moveaxis(image_data, 0, -1)
+            fig = px.imshow(image_data, title=os.path.basename(tif_path), aspect="auto")
             images.append(dcc.Graph(figure=fig))
-
+    
     return f"Polygon {idx + 1}/{len(polygons)}", images
 
 # Callback to save the selected year
