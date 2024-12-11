@@ -3,6 +3,7 @@
 import os  
 import geopandas as gpd  # for .shp data
 import rasterio  # for .tif files
+from rasterio.warp import calculate_default_transform, reproject, Resampling  # for reprojection
 import pandas as pd  # for CSV
 import dash  # for interactive web app
 from dash import dcc, html  # dash components
@@ -10,8 +11,12 @@ from dash.dependencies import Input, Output  # managing app interactivity
 import plotly.express as px  # for visualizing raster data
 import numpy as np  # for numerical operations
 
+# Directory to save reprojected rasters
+reprojected_dir = "Z:/BassConnectionsCT/Reprojected_Images"  # Adjust this path as needed
+os.makedirs(reprojected_dir, exist_ok=True)  # Create the directory if it doesn't exist
+
 # locate data folder 
-data_folder = "Z:/BassConnectionsCT/Test_Images" ## replace with own path to folder ##
+data_folder = "Z:/BassConnectionsCT/Test_Images"  # Replace with your own path
 
 # load the .shp file 
 shp_file = [f for f in os.listdir(data_folder) if f.endswith(".shp")]
@@ -19,27 +24,71 @@ if len(shp_file) != 1:
     raise ValueError("There must be exactly one .shp file in the folder!")
 shp_path = os.path.join(data_folder, shp_file[0])
 
-#load the shapefile into a geodataframe
+# load the shapefile into a geodataframe
 gdf = gpd.read_file(shp_path)
 print("Loaded shapefile:", shp_path)
 
-#list all .tif files in the folder
+# CRS of the shapefile
+target_crs = gdf.crs
+print("Shapefile CRS:", target_crs)
+
+# list all .tif files in the folder
 tif_files = [os.path.join(data_folder, f) for f in os.listdir(data_folder) if f.endswith(".tif")]
 if not tif_files:
     raise ValueError("No .tif files found in the folder!")
 print("Loaded .tif files:", tif_files)
 
-#extract polygons from the shapefile
+# Reproject the rasters to match the shapefile CRS
+reprojected_tif_files = []  # List to store reprojected raster paths
+for tif_path in tif_files:
+    with rasterio.open(tif_path) as src:
+        # Check if CRS matches
+        if src.crs != target_crs:
+            print(f"Reprojecting {tif_path} to match shapefile CRS...")
+            # Calculate transform and dimensions for target CRS
+            transform, width, height = calculate_default_transform(
+                src.crs, target_crs, src.width, src.height, *src.bounds
+            )
+            # Update metadata for the reprojected raster
+            kwargs = src.meta.copy()
+            kwargs.update({
+                "crs": target_crs,
+                "transform": transform,
+                "width": width,
+                "height": height
+            })
+            # Define the output file path
+            output_path = os.path.join(reprojected_dir, os.path.basename(tif_path))
+            reprojected_tif_files.append(output_path)
+            # Perform reprojection
+            with rasterio.open(output_path, "w", **kwargs) as dst:
+                for i in range(1, src.count + 1):  # Reproject each band
+                    reproject(
+                        source=rasterio.band(src, i),
+                        destination=rasterio.band(dst, i),
+                        src_transform=src.transform,
+                        src_crs=src.crs,
+                        dst_transform=transform,
+                        dst_crs=target_crs,
+                        resampling=Resampling.nearest
+                    )
+        else:
+            print(f"{tif_path} already matches shapefile CRS.")
+            reprojected_tif_files.append(tif_path)  # Add original file if CRS matches
+
+# Update tif_files to use reprojected rasters
+tif_files = reprojected_tif_files
+print("Reprojection complete. Using reprojected .tif files.")
+
+# Extract polygons from the shapefile
 polygons = gdf.geometry  
 print(f"Loaded {len(polygons)} polygons.")
 
-#create a results DF to store user selections
+# Create a results DF to store user selections
 results = pd.DataFrame({"Polygon_ID": gdf.index, "First_Year": None})
 print("Initialized results storage.")
 
-
-
-#initialize web app
+# Initialize web app
 app = dash.Dash(__name__)
 
 # Define the app layout (UI components)
