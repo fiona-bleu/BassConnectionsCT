@@ -105,8 +105,9 @@ app.layout = html.Div([
     html.Div(id="results-output"),
 ])
 
-#list for updated polygons
+#list for updated polygons (NEW: and click number tracking)
 selected_polygon_idx = [0]
+previous_clicks_state = {"prev": 0, "next": 0} #NEW
 
 #callback to update the displayed polygon
 @app.callback(
@@ -114,9 +115,15 @@ selected_polygon_idx = [0]
     [Input("prev-button", "n_clicks"), Input("next-button", "n_clicks")]
 )
 def update_polygon(prev_clicks, next_clicks):
+    global previous_clicks_state #NEW accesses click number tracking
+    prev_diff = prev_clicks - previous_clicks_state["prev"] #NEW track difference
+    next_diff = next_clicks - previous_clicks_state["next"] #NEW track difference
+    previous_clicks_state['prev'] = prev_clicks #NEW update tracking
+    previous_clicks_state["next"] = next_clicks #NEW update tracking
+
     #update current polygon index
     idx = selected_polygon_idx[0]
-    idx = max(0, min(len(polygons) - 1, idx + (next_clicks - prev_clicks)))
+    idx = max(0, min(len(polygons) - 1, idx - prev_diff + next_diff))
     selected_polygon_idx[0] = idx
 
     #current polygon and its extent
